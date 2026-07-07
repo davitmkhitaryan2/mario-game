@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="hy">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyber Soldier: Boss Encounter</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #090d16;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #d78080;
+            overflow: hidden;
+        }
+
+        h1 {
+            margin-bottom: 5px;
+            text-shadow: 0 0 15px #06b6d4;
+            font-size: 26px;
+            letter-spacing: 2px;
+
+
+hyphenate-limit-chars: ;
+
+        }
+
+        #gameContainer {
+            position: relative;
+            box-shadow: 0 0 40px rgba(6, 182, 212, 0.3);
+            border: 2px solid #1e293b;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, #0f172a, #1e1b4b);
+        }
+
+        .instructions {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #64748b;
+            text-align: center;
+            line-height: 1.6;
+        }
+        
+        .accent {
+            color: #38bdf8;
+            font-weight: bold;
+        }
+        .boss-alert {
+            color: #ef4444;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🤖 CYBER SOLDIER: OBLIVION</h1>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="850" height="480"></canvas>
+    </div>
+    
+    <div class="instructions">
+        <strong>Կառավարում՝</strong> Շարժվել՝ <span class="accent">A / D</span> կամ <span class="accent">← / →</span> | Ցատկ՝ <span class="accent">W</span> կամ <span class="accent">↑</span><br>
+        Կրակել՝ <span class="accent">Space (Բացատ)</span> — հասանելի է <span class="accent">դեղին աստղը</span> վերցնելուց հետո։<br>
+        <span class="boss-alert">Զգուշացում՝</span> Յուրաքանչյուր 2000 մետրից հետո հայտնվում է <span class="boss-alert">ԲՈՍՍԸ</span>։
+    </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Խաղի աշխարհի և կամերայի փոփոխականներ
+let cameraX = 0;
+let worldLength = 2000; 
+let score = 0;
+let gameOver = false;
+
+// Խաղացող (Զինվոր)
+const player = {
+    x: 100,
+    y: 300,
+    width: 32,
+    height: 46,
+    vx: 0,
+    vy: 0,
+    speed: 5,
+    jumpForce: 13,
+    grounded: false,
+    hasWeapon: false,
+    facing: 'right',
+    hp: 3,
+    maxHp: 3,
+    invincibleFrames: 0
+};
+
+// ԲՈՍՍ
+const boss = {
+    x: 0,
+    y: 150,
+    width: 70,
+    height: 100,
+    vx: 2,
+    vy: 2,
+    hp: 15,
+    maxHp: 15,
+    active: false,
+    shootCooldown: 0,
+    direction: 1
+};
+
+// Զանգվածներ տարրերի համար
+let platforms = [];
+let enemies = [];
+let items = [];
+let playerBullets = [];
+let bossBullets = [];
+let particles = [];
+
+// Ստեղների համակարգ
+const keys = {};
+window.addEventListener('keydown', e => {
+    keys[e.key] = true;
+    if (e.key === ' ' || e.key === 'ArrowUp') e.preventDefault(); // Կանխել էջի սքրոլը
+});
+window.addEventListener('keyup', e => keys[e.key] = false);
+
+// Խաղի սկզբնական գեներացիա
+function initGame() {
+    cameraX = 0;
+    score = 0;
+    gameOver = false;
+    
+    player.x = 100;
+    player.y = 300;
+    player.vx = 0;
+    player.vy = 0;
+    player.hp = 3;
+    player.hasWeapon = false;
+    player.invincibleFrames = 0;
+
+    boss.active = false;
+    boss.hp = boss.maxHp;
+
+    platforms = [
+        { x: 0, y: 430, width: 1200, height: 50, color: '#0f172a', topColor: '#06b6d4' }
+    ];
+    
+    enemies = [];
+    items = [
+        { x: 400, y: 350, width: 20, height: 20, type: 'weapon' }
+    ];
+    playerBullets = [];
+    bossBullets = [];
+    particles = [];
+
+    worldLength = 1500;
+    generateNextSegment(0, 3000);
+}
+
+// Աշխարհի հատվածների ավտոմատ գեներացիա առաջ գնալիս
+function generateNextSegment(startX, endX) {
+    // Գետնի հարթակներ
+    for (let x = startX; x < endX; x += 300) {
+        if (x === 0) continue;
+        // Բոսսի տարածքում հարթակները կայուն ենք անում
+        let isBossZone = (x > 1800 && x < 2500) || (x > 3800 && x < 4500);
+        
+        if (isBossZone) {
+            platforms.push({ x: x, y: 430, width: 320, height: 50, color: '#1e1e2f', topColor: '#f43f5e' });
+            continue;
+        }
+
+        // Սովորական պլատֆորմներ
+        let groundY = 430;
+        platforms.push({ x: x, y: groundY, width: 250, height: 50, color: '#1e293b', topColor: '#3b82f6' });
+        
+        // Օդային պլատֆորմներ
+        if (Math.random() > 0.3) {
+            platforms.push({ x: x + 100, y: groundY - 100 - Math.random() * 80, width: 120, height: 15, color: '#475569', topColor: '#a855f7' });
+        }
+
+        // Թշնամիների սփաուն
+        if (Math.random() > 0.4 && x > 500) {
+            enemies.push({
+                x: x + 120,
+                y: groundY - 30,
+                width: 30,
+                height: 30,
+                vx: (Math.random() > 0.5 ? 1.5 : -1.5),
+                minX: x,
+                maxX: x + 240,
+                color: '#ec4899'
+            });
+        }
+    }
+}
+
+// Բախումների ֆունկցիա
+function checkCollision(obj1, obj2) {
+    return obj1.x < obj2.x + obj2.width &&
+           obj1.x + obj1.width > obj2.x &&
+           obj1.y < obj2.y + obj2.height &&
+           obj1.y + obj1.height > obj2.y;
+}
+
+// Էֆեկտներ (Մասնիկներ) պայթյունների համար
+function createExplosion(x, y, color) {
+    for (let i = 0; i < 10; i++) {
+        particles.push({
+            x: x, y: y,
+            vx: (Math.random() - 0.5) * 6,
+            vy: (Math.random() - 0.5) * 6,
+            radius: Math.random() * 3 + 1,
+            alpha: 1,
+            color: color
+        });
+    }
+}
+
+// Տրամաբանության թարմացում (Update)
+function update() {
+    if (gameOver) {
+        if (keys['Enter']) initGame();
+        return;
+    }
+
+    // Անխոցելիության թայմեր
+    if (player.invincibleFrames > 0) player.invincibleFrames--;
+
+    // Շարժում
+    if (keys['ArrowRight'] || keys['d'] || keys['D']) {
+        player.vx = player.speed;
+        player.facing = 'right';
+    } else if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
+        player.vx = -player.speed;
+        player.facing = 'left';
+    } else {
+        player.vx = 0;
+    }
+
+    // Ցատկ
+    if ((keys['ArrowUp'] || keys['w'] || keys['W']) && player.grounded) {
+        player.vy = -player.jumpForce;
+        player.grounded = false;
+    }
+
+    player.vy += 0.6; // Գրավիտացիա
+    player.x += player.vx;
+    player.y += player.vy;
+
+    // Թույլ չտալ հետ գնալ էկրանից դուրս
+    if (player.x < cameraX) player.x = cameraX;
+
+    // Կամերայի սքրոլ (Scrolling) երբ հերոսն անցնում է էկրանի 40%-ը
+    if (player.x - cameraX > canvas.width * 0.4 && !boss.active) {
+        cameraX = player.x - canvas.width * 0.4;
+    }
+
+    // Նոր տարածքների ստեղծում առաջ գնալիս
+    if (player.x + canvas.width > worldLength) {
+        generateNextSegment(worldLength, worldLength + 2000);
+        worldLength += 2000;
+    }
+
+    // ԲՈՍՍԻ ԱԿՏԻՎԱՑՈՒՄ (Օրինակ՝ 2000 մետրի վրա)
+    if (player.x > 2000 && !boss.active && boss.hp > 0) {
+        boss.active = true;
+        boss.x = cameraX + canvas.width + 100; // Հայտնվում է աջից
+        boss.hp = boss.maxHp;
+    }
+
+    // Բոսսի տրամաբանությունը
+    if (boss.active) {
+        // Բոսսը շարժվում է խաղացողին զուգահեռ էկրանի աջ մասում
+        let targetX = cameraX + canvas.width - 120;
+        boss.x += (targetX - boss.x) * 0.05;
+
+        // Ուղղահայաց շարժում (վերև-ներքև)
+        boss.y += boss.vy * boss.direction;
+        if (boss.y < 50 || boss.y > 280) boss.direction *= -1;
+
+        // Բոսսի կրակոցներ
+        boss.shootCooldown--;
+        if (boss.shootCooldown <= 0) {
+            boss.shootCooldown = 50; // Ամեն 50 կադրը մեկ
+            bossBullets.push({
+                x: boss.x - 15,
+                y: boss.y + 30,
+                width: 16,
+                height: 10,
+                vx: -6,
+                color: '#ef4444'
+            });
+        }
+
+        // Սահմանափակել խաղացողին բոսսի մարտի ժամանակ (չփախչել)
+        if (player.x > cameraX + canvas.width - player.width - 150) {
+            player.x = cameraX + canvas.width - player.width - 150;
+        }
+    }
+
+    // Բախում հարթակների հետ
+    player.grounded = false;
+    for (let plat of platforms) {
+        if (checkCollision(player, plat)) {
+            if (player.vy > 0 && player.y + player.height - player.vy <= plat.y + 6) {
+                player.y = plat.y - player.height;
+                player.vy = 0;
+                player.grounded = true;
+            }
+        }
+    }
+
+    // Զենք վերցնելը
+    for (let item of items) {
+        if (checkCollision(player, item)) {
+            player.hasWeapon = true;
+            items.splice(items.indexOf(item), 1);
+            score += 200;
+        }
+    }
+
+    // Խաղացողի կրակոցը (Space)
+    if (keys[' '] && player.hasWeapon) {
+        keys[' '] = false;
+        playerBullets.push({
+            x: player.facing === 'right' ? player.x + player.width : player.x - 12,
+            y: player.y + 18,
+            width: 14,
+            height: 6,
+            vx: player.facing === 'right' ? 9 : -9,
+            color: '#06b6d4'
+        });
+    }
+
+    // Խաղացողի փամփուշտների շարժում
+    for (let i = playerBullets.length - 1; i >= 0; i--) {
+        let b = playerBullets[i];
+        b.x += b.vx;
+
+        if (b.x < cameraX || b.x > cameraX + canvas.width) {
+            playerBullets.splice(i, 1);
+            continue;
+        }
+
+        // Հարված թշնամուն
+        for (let j = enemies.length - 1; j >= 0; j--) {
+            if (checkCollision(b, enemies[j])) {
+                createExplosion(enemies[j].x, enemies[j].y, '#ec4899');
+                enemies.splice(j, 1);
+                playerBullets.splice(i, 1);
+                score += 100;
+                break;
+            }
+        }
+
+        // Հարված ԲՈՍՍԻՆ
+        if (boss.active && checkCollision(b, boss)) {
+            boss.hp--;
+            createExplosion(b.x, b.y, '#f43f5e');
+            playerBullets.splice(i, 1);
+            if (boss.hp <= 0) {
+                boss.active = false;
+                createExplosion(boss.x + 35, boss.y + 50, '#f59e0b');
+                score += 2000; // Բոնուս բոսսին հաղթելու համար
+            }
+        }
+    }
+
+    // Բոսսի փամփուշտների շարժում և հարված հերոսին
+    for (let i = bossBullets.length - 1; i >= 0; i--) {
+        let bb = bossBullets[i];
+        bb.x += bb.vx;
+
+        if (checkCollision(bb, player)) {
+            bossBullets.splice(i, 1);
+            damagePlayer();
+            continue;
+        }
+        if (bb.x < cameraX) bossBullets.splice(i, 1);
+    }
+
+    // Թշնամիների շարժում և բախումներ
+    for (let enemy of enemies) {
+        enemy.x += enemy.vx;
+        if (enemy.x <= enemy.minX || enemy.x + enemy.width >= enemy.maxX) {
+            enemy.vx *= -1;
+        }
+
+        if (checkCollision(player, enemy)) {
+            if (player.vy > 0 && player.y + player.height - player.vy <= enemy.y + 10) {
+                createExplosion(enemy.x, enemy.y, '#ec4899');
+                enemies.splice(enemies.indexOf(enemy), 1);
+                player.vy = -8;
+                score += 100;
+            } else {
+                damagePlayer();
+            }
+        }
+    }
+
+    // Մասնիկների (Particles) թարմացում
+    for (let i = particles.length - 1; i >= 0; i--) {
+        let p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= 0.02;
+        if (p.alpha <= 0) particles.splice(i, 1);
+    }
+
+    // Անդունդն ընկնելը
+    if (player.y > canvas.height) {
+        player.hp = 0;
+        gameOver = true;
+    }
+}
+
+// Վնաս ստանալու տրամաբանություն
+function damagePlayer() {
+    if (player.invincibleFrames === 0) {
+        player.hp--;
+        player.invincibleFrames = 60; // 1 վայրկյան անխոցելիություն (60 fps)
+        if (player.hp <= 0) {
+            gameOver = true;
+        }
+    }
+}
+
+// ԶԻՆՎՈՐԻ (ՀԵՐՈՍԻ) ՄՈԴԵԼԱՎՈՐՈՒՄԸ ԿՏԱՎԻ ՎՐԱ (Canvas Drawing)
+function drawSoldier(x, y, width, height, facing, hasWeapon) {
+    // Եթե անխոցելի է, թարթող էֆեկտ
+    if (player.invincibleFrames > 0 && Math.floor(player.invincibleFrames / 5) % 2 === 0) return;
+
+    ctx.save();
+    ctx.translate(x - cameraX, y);
+
+    // Ոտքեր / Կոշիկներ
+    ctx.fillStyle = '#334155';
+    ctx.fillRect(4, height - 10, 8, 10);
+    ctx.fillRect(width - 12, height - 10, 8, 10);
+
+    // Մարմին (Տակտիկական Զրահ)
+    ctx.fillStyle = '#059669'; // Մուգ կանաչ ռազմական գույն
+    ctx.fillRect(2, 14, width - 4, height - 24);
+    
+    // Ուսադիրներ/Զրահապատ բաճկոն
+    ctx.fillStyle = '#10b981'; 
+    ctx.fillRect(0, 16, width, 8);
+
+    // Սաղավարտ (Helmet)
+    ctx.fillStyle = '#064e3b';
+    ctx.fillRect(4, 2, width - 8, 12);
+
+    // Նեոնային փայլող դիմակ (Cyber Visor)
+    ctx.fillStyle = '#06b6d4'; // Փիրուզագույն նեոն
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = '#06b6d4';
+    if (facing === 'right') {
+        ctx.fillRect(width - 14, 5, 10, 4);
+    } else {
+        ctx.fillRect(4, 5, 10, 4);
+    }
+    ctx.shadowBlur = 0;
+
+    // Զենք (եթե ակտիվ է)
+    if (hasWeapon) {
+        ctx.fillStyle = '#f59e0b'; // Նեոնային ոսկեգույն լազեր-հրացան
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#f59e0b';
+        if (facing === 'right') {
+            ctx.fillRect(width - 8, 20, 18, 5); // Փող
+            ctx.fillRect(width - 12, 18, 6, 10); // Բռնակ
+        } else {
+            ctx.fillRect(-10, 20, 18, 5);
+            ctx.fillRect(6, 18, 6, 10);
+        }
+        ctx.shadowBlur = 0;
+    }
+
+    ctx.restore();
+}
+
+// ԲՈՍՍԻ ՄՈԴԵԼԱՎՈՐՈՒՄԸ
+function drawBoss() {
+    if (!boss.active) return;
+
+    ctx.save();
+    ctx.translate(boss.x - cameraX, boss.y);
+
+    // Հսկա մեխանիկական մարմին (Mech body)
+    ctx.fillStyle = '#1e293b';
+    ctx.strokeStyle = '#f43f5e';
+    ctx.lineWidth = 2;
+    ctx.fillRect(0, 0, boss.width, boss.height);
+    ctx.strokeRect(0, 0, boss.width, boss.height);
+
+    // Կարմիր փայլող մեծ աչք / միջուկ
+    ctx.fillStyle = '#ef4444';
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = '#ef4444';
+    ctx.fillRect(10, 20, boss.width - 20, 15);
+    
+    // Պլազմային թնդանոթ (Cannon)
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(-20, 40, 25, 18);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(-20, 46, 5, 6); // Թնդանոթի լույսը
+
+    ctx.shadowBlur = 0;
+    ctx.restore();
+
+    // ԲՈՍՍԻ ԿՅԱՆՔԵՐԻ ՍԱՆԴՂԱԿԸ (HP BAR)
+    const barWidth = 400;
+    const barHeight = 16;
+    const barX = canvas.width / 2 - barWidth / 2;
+    const barY = 25;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+    ctx.fillRect(barX, barY, barWidth, barHeight);
+    
+    let currentHpWidth = (boss.hp / boss.maxHp) * barWidth;
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(barX, barY, currentHpWidth, barHeight);
+    
+    ctx.strokeStyle = '#fff';
+    ctx.strokeRect(barX, barY, barWidth, barHeight);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText("BOSS: CYBER MECH-UNIT", barX + 10, barY + 12);
+}
+
+// Էկրանին նկարելու ֆունկցիան (Draw)
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Ֆոնի հեռավոր աստղեր/նեոնային էֆեկտ (Parallax)
+    ctx.fillStyle = 'rgba(99, 102, 241, 0.05)';
+    for (let i = 0; i < 5; i++) {
+        let starX = (i * 250 - cameraX * 0.2) % canvas.width;
+        if (starX < 0) starX += canvas.width;
+        ctx.fillRect(starX, 50 + i * 40, 4, 4);
+    }
+
+    // Նկարել պլատֆորմները
+    for (let plat of platforms) {
+        ctx.fillStyle = plat.color;
+        ctx.fillRect(plat.x - cameraX, plat.y, plat.width, plat.height);
+        // Վերևի գունավոր գիծը
+        ctx.fillStyle = plat.topColor;
+        ctx.fillRect(plat.x - cameraX, plat.y, plat.width, 4);
+    }
+
+    // Նկարել հավաքվող զենքը (Աստղ)
+    for (let item of items) {
+        ctx.fillStyle = '#eab308';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#eab308';
+        ctx.fillRect(item.x - cameraX, item.y, item.width, item.height);
+        ctx.shadowBlur = 0;
+    }
+
+    // Նկարել սովորական թշնամիներին
+    for (let enemy of enemies) {
+        ctx.fillStyle = enemy.color;
+        ctx.fillRect(enemy.x - cameraX, enemy.y, enemy.width, enemy.height);
+        // Աչքեր
+        ctx.fillStyle = '#000';
+        ctx.fillRect(enemy.vx > 0 ? enemy.x - cameraX + enemy.width - 8 : enemy.x - cameraX + 4, enemy.y + 6, 4, 4);
+    }
+
+    // Նկարել փամփուշտները (Հերոսի)
+    for (let b of playerBullets) {
+        ctx.fillStyle = b.color;
+        ctx.fillRect(b.x - cameraX, b.y, b.width, b.height);
+    }
+
+    // Նկարել բոսսի փամփուշտները
+    for (let bb of bossBullets) {
+        ctx.fillStyle = bb.color;
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = '#ef4444';
+        ctx.fillRect(bb.x - cameraX, bb.y, bb.width, bb.height);
+        ctx.shadowBlur = 0;
+    }
+
+    // Նկարել մասնիկները
+    for (let p of particles) {
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x - cameraX, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // Նկարել ԲՈՍՍԻՆ
+    drawBoss();
+
+    // Նկարել Զինվորին
+    drawSoldier(player.x, player.y, player.width, player.height, player.facing, player.hasWeapon);
+
+    // ԻՆՏԵՐՖԵՅՍ (UI)
+    // Միավորներ
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(`SCORE: ${score}`, 20, 35);
+    ctx.fillText(`DISTANCE: ${Math.floor(player.x)}m`, 160, 35);
+
+    // Կյանքեր (Սրտիկներ)
+    ctx.fillStyle = '#ef4444';
+    let hpText = '';
+    for(let i=0; i<player.hp; i++) hpText += '❤️';
+    ctx.fillText(`HP: ${hpText}`, 340, 35);
+
+    // Զենքի կարգավիճակ
+    ctx.fillStyle = player.hasWeapon ? '#22c55e' : '#64748b';
+    ctx.fillText(player.hasWeapon ? 'WEAPON: READY' : 'WEAPON: NONE', canvas.width - 180, 35);
+
+    // GAME OVER էկրան
+    if (gameOver) {
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.fillStyle = '#ef4444';
+        ctx.font = 'bold 40px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText("MISSION FAILED", canvas.width / 2, canvas.height / 2 - 20);
+        
+        ctx.fillStyle = '#fff';
+        ctx.font = '16px sans-serif';
+        ctx.fillText(`Վերջնական միավորներ՝ ${score}`, canvas.width / 2, canvas.height / 2 + 20);
+        ctx.fillText("Սեղմիր ENTER նորից սկսելու համար", canvas.width / 2, canvas.height / 2 + 50);
+        ctx.textAlign = 'left'; // վերականգնել դիրքը
+    }
+}
+
+// Գլխավոր ցիկլ
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+// Խաղի ստարտ
+initGame();
+gameLoop();
+</script>
+
+</body>
+</html>
